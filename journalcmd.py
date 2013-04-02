@@ -39,19 +39,25 @@ def get_ntfs_volume_data(volh):
 def get_volume_info(drive):
     return win32api.GetVolumeInformation('\\\\.\\' + drive + '\\')
 
-def decode_usn_data(buf):
+def decode_usn_record(buf):
     outfmt = 'LHHQQQQLLLLHH'
     outlen = struct.calcsize(outfmt)
-    head_usn = struct.unpack('Q', buf[:8])[0]
-    buf = buf[8:]
+    tup = struct.unpack(outfmt, buf[:outlen])
+    recordlen = tup[0]
+    filenamelen = tup[11]
+    filenameoffset = tup[12]
+    name1 = buf[filenameoffset:filenameoffset+filenamelen]
+    name = name1.decode('UTF-16', 'replace')
+    return recordlen, tup, name
+
+def decode_usn_data(buf):
+    headfmt = 'Q'
+    headlen = struct.calcsize(headfmt)
+    head_usn = struct.unpack(headfmt, buf[:headlen])[0]
+    buf = buf[headlen:]
     tups = []
     while len(buf) > 0:
-        tup = struct.unpack(outfmt, buf[:outlen])
-        recordlen = tup[0]
-        filenamelen = tup[11]
-        filenameoffset = tup[12]
-        name1 = buf[filenameoffset:filenameoffset+filenamelen]
-        name = name1.decode('UTF-16', 'replace')
+        recordlen, tup, name = decode_usn_record(buf)
         tups.append((tup, name))
         buf = buf[recordlen:]
     return head_usn, tups
@@ -101,3 +107,11 @@ def generate_usns(volh, low_usn, high_usn):
             yield frn_pos,t,n
         frn_pos = next_frn
 
+def read_file_usn(path):
+    fileh = win32file.CreateFile(path, win32file.GENERIC_READ,
+            win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE, None, 
+            win32file.OPEN_EXISTING, win32file.FILE_ATTRIBUTE_NORMAL, None)
+    buf = win32file.DeviceIoControl(fileh, winioctlcon.FSCTL_READ_FILE_USN_DATA, None, USN_BUFFER_SIZE)
+    win32file.CloseHandle(fileh)
+    recordlen, tups, name = decode_usn_record(buf)
+    return tups, name
