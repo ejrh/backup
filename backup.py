@@ -277,10 +277,13 @@ class Backup(object):
         source_path = os.path.join(self.source, item_path)
         if os.path.isfile(source_path):
             self.copy_item(item_path)
-        else:
+        elif os.path.isdir(source_path):
             self.make_dir(item_path)
             for c in self.get_children(item_path):
                 self.backup_item(os.path.join(item_path, c))
+        else:
+            self.notifier.notice('Unable to backup item of unknown type: %s' % item_path)
+            return
         self.notifier.notice('Backed up: %s' % item_path)
 
     def check_target(self):
