@@ -163,9 +163,33 @@ class Backup(object):
         dest_path = os.path.join(self.target, new_path)
         links.link(link_path, dest_path)
         return True
+    
+    def reuse_from_previous(self, item_path, source_path):
+        previous_path = os.path.join(self.target, self.previous_name, item_path)
+        if not os.path.exists(previous_path):
+            return False
         
+        source_path = os.path.join(self.source, item_path)
+        item_size = os.path.getsize(source_path)
+        previous_size = os.path.getsize(previous_path)
+        if item_size != previous_size:
+            return False
+        
+        dest_path = os.path.join(self.target, self.name, item_path)
+        try:
+            links.link(previous_path, dest_path)
+        except Exception, ex:
+            self.notifier.error('Unable to make hard link from %s to %s' % (dest_path, link_path), ex)
+            raise ex
+        return True
+    
     def copy_item(self, item_path):
         source_path = os.path.join(self.source, item_path)
+        
+        if self.enable_fast_reuse and self.reuse_from_previous(item_path, source_path):
+            self.notifier.notice('Reused (from previous): %s' % item_path)
+            return
+            
         md5, size, big_buf = self.get_md5(source_path)
         if self.reuse_from_manifest(md5, size, item_path):
             self.notifier.notice('Reused (from manifest): %s' % item_path)
@@ -350,6 +374,8 @@ def parse_command_line(argv=None):
                       help="name of backup (defaults to date)")
     parser.add_option("-j", "--use-journal", default=False, action='store_true',
                       help="use USN journal")
+    parser.add_option("-r", "--fast-reuse", default=False, action='store_true',
+                      help="reuse previous files without checking contents")
     options, args = parser.parse_args(argv[1:])
 
     if len(args) != 2:
@@ -378,6 +404,8 @@ def main(args=None):
     backup.enable_dir_reuse = True
     if options.use_journal:
         backup.enable_journal = True
+    if options.fast_reuse:
+        backup.enable_fast_reuse = True
     backup.run()
 
 
